@@ -340,6 +340,8 @@ export default function RegistrationPage() {
   const [countdown, setCountdown] = useState<number>(0);
   const [, setSendingEmail] = useState(false);
   const [, setEmailSent] = useState(false);
+  // Store property photo URLs for reliable display on mobile
+  const [propertyPhotoUrls, setPropertyPhotoUrls] = useState<Map<number, string>>(new Map());
   const [formData, setFormData] = useState<FormData>({
     propertyType: '',
     surveyNumber: '',
@@ -492,6 +494,16 @@ export default function RegistrationPage() {
       loadDraft();
     }
   }, [connected, publicKey]);
+
+  // Cleanup property photo URLs on unmount
+  useEffect(() => {
+    return () => {
+      // Revoke all object URLs to prevent memory leaks
+      propertyPhotoUrls.forEach(url => {
+        URL.revokeObjectURL(url);
+      });
+    };
+  }, [propertyPhotoUrls]);
 
   // Save draft when wallet disconnects or data changes
   useEffect(() => {
@@ -678,14 +690,58 @@ export default function RegistrationPage() {
   const handlePhotoUpload = (files: FileList | null) => {
     if (files) {
       const newPhotos = Array.from(files);
-      setFormData(prev => ({
-        ...prev,
-        propertyPhotos: [...prev.propertyPhotos, ...newPhotos].slice(0, 10), // Max 10 photos
-      }));
+      setFormData(prev => {
+        const updatedPhotos = [...prev.propertyPhotos, ...newPhotos].slice(0, 10); // Max 10 photos
+        
+        // Create and store URLs for all photos (including new ones)
+        setPropertyPhotoUrls(prevUrls => {
+          const newUrls = new Map(prevUrls);
+          // Create URLs for all photos, reusing existing ones where possible
+          updatedPhotos.forEach((photo, index) => {
+            if (!newUrls.has(index)) {
+              // Create URL for this photo
+              const url = URL.createObjectURL(photo);
+              newUrls.set(index, url);
+            }
+          });
+          // Remove URLs for photos that no longer exist
+          const maxIndex = updatedPhotos.length - 1;
+          prevUrls.forEach((url, key) => {
+            if (key > maxIndex) {
+              URL.revokeObjectURL(url);
+              newUrls.delete(key);
+            }
+          });
+          return newUrls;
+        });
+        
+        return {
+          ...prev,
+          propertyPhotos: updatedPhotos,
+        };
+      });
     }
   };
 
   const removePhoto = (index: number) => {
+    // Revoke URL for the removed photo
+    setPropertyPhotoUrls(prevUrls => {
+      const url = prevUrls.get(index);
+      if (url) {
+        URL.revokeObjectURL(url);
+      }
+      // Recreate map with updated indices
+      const newUrls = new Map<number, string>();
+      prevUrls.forEach((value, key) => {
+        if (key < index) {
+          newUrls.set(key, value);
+        } else if (key > index) {
+          newUrls.set(key - 1, value);
+        }
+      });
+      return newUrls;
+    });
+    
     setFormData(prev => ({
       ...prev,
       propertyPhotos: prev.propertyPhotos.filter((_, i) => i !== index),
@@ -1459,23 +1515,22 @@ Registration ID: REG-${Date.now().toString().slice(-8)}
         property_photos: photosIPFS.length > 0 ? photosIPFS : undefined,
       };
 
-      // Save registration to Supabase
-      await saveRegistration(registrationData);
-      // Save registration to Solana blockchain
+      // Ensure wallet is connected before proceeding with blockchain transaction
+      if (!connected || !wallet || !publicKey) {
+        throw new Error('Wallet not connected. Please connect your wallet to submit registration.');
+      }
+      
+      // Verify wallet has publicKey access
+      const walletPublicKey = wallet?.adapter?.publicKey || publicKey;
+      if (!walletPublicKey) {
+        throw new Error('Wallet public key not available. Please reconnect your wallet.');
+      }
+
+      // Save registration to Solana blockchain FIRST (before Supabase)
+      // This ensures the transaction happens before saving to database
+      let blockchainResult: { signature: string; accountAddress: string; solscanUrl: string } | null = null;
       try {
-        // Ensure wallet is connected before proceeding
-        if (!connected || !wallet || !publicKey) {
-          throw new Error('Wallet not connected. Please connect your wallet to submit registration.');
-        }
-        
-        // Verify wallet has publicKey access
-        const walletPublicKey = wallet?.adapter?.publicKey || publicKey;
-        if (!walletPublicKey) {
-          throw new Error('Wallet public key not available. Please reconnect your wallet.');
-        }
-        
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const blockchainResult = await initializeRegistrationOnSolana(
+        blockchainResult = await initializeRegistrationOnSolana(
           wallet,
           sendTransaction,
           documentsIPFS,
@@ -1503,14 +1558,26 @@ Registration ID: REG-${Date.now().toString().slice(-8)}
             buyer_father_name: registrationData.buyer_father_name,
           }
         );
+        
+        console.log('✅ Blockchain transaction successful:', blockchainResult.signature);
       } catch (error) {
         console.error('❌ Failed to save to Solana blockchain:', error);
-        // Don't fail the entire registration if Solana fails
-        // Supabase already has the data, but log the error
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        console.warn('⚠️ Registration saved to Supabase but blockchain submission failed:', errorMessage);
-        // You might want to show a warning to the user here
+        
+        // Provide mobile-specific error messages
+        if (errorMessage.includes('User rejected') || errorMessage.includes('User cancelled')) {
+          throw new Error('Transaction cancelled. Please approve the transaction in your wallet to complete registration.');
+        } else if (errorMessage.includes('timeout') || errorMessage.includes('Network')) {
+          throw new Error('Transaction timeout: Please check your internet connection and try again.');
+        } else if (errorMessage.includes('insufficient funds') || errorMessage.includes('balance')) {
+          throw new Error('Insufficient SOL balance. Please ensure your wallet has enough SOL for transaction fees.');
+        } else {
+          throw new Error(`Blockchain transaction failed: ${errorMessage}. Please try again.`);
+        }
       }
+
+      // Only save to Supabase after successful blockchain transaction
+      await saveRegistration(registrationData);
 
       // Delete draft after successful submission
       if (walletAddress) {
@@ -2395,13 +2462,26 @@ Registration ID: REG-${Date.now().toString().slice(-8)}
 
                 {formData.propertyPhotos.length > 0 && (
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    {formData.propertyPhotos.map((photo, index) => (
-                      <div key={index} className="relative group">
-                        <img
-                          src={URL.createObjectURL(photo)}
-                          alt={`Property photo ${index + 1}`}
-                          className="w-full h-32 object-cover rounded-lg border border-gray-700"
-                        />
+                    {formData.propertyPhotos.map((photo, index) => {
+                      // Use stored URL or create one if not available
+                      const photoUrl = propertyPhotoUrls.get(index) || URL.createObjectURL(photo);
+                      if (!propertyPhotoUrls.has(index)) {
+                        setPropertyPhotoUrls(prev => new Map(prev).set(index, photoUrl));
+                      }
+                      
+                      return (
+                        <div key={index} className="relative group">
+                          <img
+                            src={photoUrl}
+                            alt={`Property photo ${index + 1}`}
+                            className="w-full h-32 object-cover rounded-lg border border-gray-700"
+                            onError={(e) => {
+                              // Try to recreate URL if it failed
+                              const newUrl = URL.createObjectURL(photo);
+                              setPropertyPhotoUrls(prev => new Map(prev).set(index, newUrl));
+                              e.currentTarget.src = newUrl;
+                            }}
+                          />
                         <button
                           onClick={() => removePhoto(index)}
                           className="absolute top-2 right-2 p-1.5 bg-black/60 border border-gray-600 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80"
@@ -2410,7 +2490,8 @@ Registration ID: REG-${Date.now().toString().slice(-8)}
                           <CloseIcon className="text-white" />
                         </button>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -2685,24 +2766,37 @@ Registration ID: REG-${Date.now().toString().slice(-8)}
                     </div>
                     {formData.propertyPhotos.length > 0 && (
                       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mt-3">
-                        {formData.propertyPhotos.slice(0, 8).map((photo, index) => (
-                          <div key={index} className="relative group">
-                            <img
-                              src={URL.createObjectURL(photo)}
-                              alt={`Property photo ${index + 1}`}
-                              className="w-full h-24 sm:h-32 md:h-40 object-cover rounded-lg border border-gray-700 cursor-pointer hover:border-gray-500 transition-colors"
-                              onClick={() => setShowPropertyPhotos(true)}
-                              onError={(e) => {
-                                console.error('Failed to load property photo preview:', photo.name);
-                                const target = e.currentTarget;
-                                target.style.display = 'none';
-                              }}
-                            />
-                            <div className="absolute inset-0 bg-black/0 hover:bg-black/20 rounded-lg transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                              <span className="text-white text-xs">Click to view</span>
+                        {formData.propertyPhotos.slice(0, 8).map((photo, index) => {
+                          // Use stored URL or create one if not available
+                          const photoUrl = propertyPhotoUrls.get(index) || URL.createObjectURL(photo);
+                          if (!propertyPhotoUrls.has(index)) {
+                            setPropertyPhotoUrls(prev => new Map(prev).set(index, photoUrl));
+                          }
+                          
+                          return (
+                            <div key={index} className="relative group">
+                              <img
+                                src={photoUrl}
+                                alt={`Property photo ${index + 1}`}
+                                className="w-full h-24 sm:h-32 md:h-40 object-cover rounded-lg border border-gray-700 cursor-pointer hover:border-gray-500 transition-colors"
+                                onClick={() => setShowPropertyPhotos(true)}
+                                onError={(e) => {
+                                  console.error('Failed to load property photo preview:', photo.name);
+                                  const target = e.currentTarget;
+                                  target.style.display = 'none';
+                                  // Try to recreate URL if it failed
+                                  const newUrl = URL.createObjectURL(photo);
+                                  setPropertyPhotoUrls(prev => new Map(prev).set(index, newUrl));
+                                  target.src = newUrl;
+                                  target.style.display = 'block';
+                                }}
+                              />
+                              <div className="absolute inset-0 bg-black/0 hover:bg-black/20 rounded-lg transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                <span className="text-white text-xs">Click to view</span>
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                         {formData.propertyPhotos.length > 8 && (
                           <div 
                             className="w-full h-24 sm:h-32 md:h-40 bg-black/40 border border-gray-700 rounded-lg flex items-center justify-center cursor-pointer hover:border-gray-500 transition-colors"
@@ -3206,24 +3300,33 @@ Registration ID: REG-${Date.now().toString().slice(-8)}
               </div>
               
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-                {formData.propertyPhotos.map((photo, index) => (
-                  <div key={index} className="relative group">
-                    <img
-                      src={URL.createObjectURL(photo)}
-                      alt={`Property photo ${index + 1}`}
-                      className="w-full h-40 sm:h-48 object-cover rounded-lg border border-gray-700"
-                      onError={(e) => {
-                        console.error('Failed to load property photo in modal:', photo.name);
-                        const target = e.currentTarget;
-                        target.style.display = 'none';
-                        const placeholder = target.nextElementSibling as HTMLElement;
-                        if (placeholder) placeholder.style.display = 'flex';
-                      }}
-                    />
-                    <div className="hidden w-full h-40 sm:h-48 bg-black/60 border border-gray-700 rounded-lg items-center justify-center">
-                      <p className="text-gray-400 text-sm">Failed to load image</p>
-                    </div>
-                    <div className="mt-2 px-2">
+                {formData.propertyPhotos.map((photo, index) => {
+                  // Use stored URL or create one if not available
+                  const photoUrl = propertyPhotoUrls.get(index) || URL.createObjectURL(photo);
+                  if (!propertyPhotoUrls.has(index)) {
+                    setPropertyPhotoUrls(prev => new Map(prev).set(index, photoUrl));
+                  }
+                  
+                  return (
+                    <div key={index} className="relative group">
+                      <img
+                        src={photoUrl}
+                        alt={`Property photo ${index + 1}`}
+                        className="w-full h-40 sm:h-48 object-cover rounded-lg border border-gray-700"
+                        onError={(e) => {
+                          console.error('Failed to load property photo in modal:', photo.name);
+                          const target = e.currentTarget;
+                          // Try to recreate URL if it failed
+                          const newUrl = URL.createObjectURL(photo);
+                          setPropertyPhotoUrls(prev => new Map(prev).set(index, newUrl));
+                          target.src = newUrl;
+                          target.style.display = 'block';
+                        }}
+                      />
+                      <div className="hidden w-full h-40 sm:h-48 bg-black/60 border border-gray-700 rounded-lg items-center justify-center">
+                        <p className="text-gray-400 text-sm">Failed to load image</p>
+                      </div>
+                      <div className="mt-2 px-2">
                       <p className="text-xs sm:text-sm text-gray-400 truncate" title={photo.name}>
                         {photo.name}
                       </p>

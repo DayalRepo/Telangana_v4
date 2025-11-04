@@ -235,9 +235,25 @@ export async function initializeRegistrationOnSolana(
       throw new Error('sendTransaction function not provided');
     }
     
-    const signature = await sendTransactionFn(transaction, connection);
+    // Send transaction with timeout for mobile devices
+    const sendTransactionPromise = sendTransactionFn(transaction, connection);
+    const timeoutPromise = new Promise<never>((_, reject) => 
+      setTimeout(() => reject(new Error('Transaction timeout: Please try again')), 120000) // 2 minute timeout
+    );
+    
+    const signature = await Promise.race([sendTransactionPromise, timeoutPromise]);
+    
+    // Wait for confirmation with timeout
+    const confirmationPromise = connection.confirmTransaction(
+      { signature, blockhash, lastValidBlockHeight }, 
+      'confirmed'
+    );
+    const confirmationTimeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Transaction confirmation timeout')), 60000) // 1 minute timeout
+    );
+    
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const confirmation = await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+    const confirmation = await Promise.race([confirmationPromise, confirmationTimeoutPromise]);
     
     const registrationAccountAddress = registrationAccount.publicKey.toBase58();
     
