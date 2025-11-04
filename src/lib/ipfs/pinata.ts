@@ -34,7 +34,7 @@ export async function uploadFileToIPFS(file: File, fileName: string): Promise<{ 
       try {
         const errorData = await response.json();
         errorMessage = errorData.error || errorMessage;
-      } catch (parseError) {
+      } catch {
         // If response is not JSON, use status text
         errorMessage = response.statusText || `HTTP ${response.status}`;
       }
