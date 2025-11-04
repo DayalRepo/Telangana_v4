@@ -1,4 +1,5 @@
 'use client';
+/* eslint-disable react/no-unescaped-entities */
 
 import { motion } from 'framer-motion';
 import { Lexend_Deca } from 'next/font/google';
@@ -251,7 +252,7 @@ export default function PrivacyPage() {
               </p>
               <ul className="list-disc list-inside space-y-2 ml-4 mb-4">
                 <li>Posting the updated Privacy Policy on this page</li>
-                <li>Updating the &quot;Last updated&quot; date at the top of this policy</li>
+                <li>Updating the "Last updated" date at the top of this policy</li>
                 <li>Sending notifications to registered users for significant changes</li>
               </ul>
               <p className="mb-4">

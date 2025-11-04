@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { ChevronRight, ChevronLeft, FileText, CheckCircle, X, ChevronDown, AlertCircle, Loader2, Search, Plus, Trash2, Copy, Check, QrCode, Clock } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Lexend_Deca, DM_Sans } from 'next/font/google';
+import { Lexend_Deca } from 'next/font/google';
 import { saveDraft, getDraft, deleteDraft, saveRegistration, type RegistrationData } from '@/lib/supabase/database';
 import { uploadFileToIPFS, uploadFilesToIPFS } from '@/lib/ipfs/pinata';
 import { initializeRegistrationOnSolana } from '@/lib/solana/contract';
@@ -15,11 +15,6 @@ const lexendDeca = Lexend_Deca({
   weight: ["300", "400", "500"],
 });
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const dmSans = DM_Sans({
-  subsets: ["latin"],
-  weight: ["400", "500", "700"],
-});
 
 interface FormData {
   // Step 1: Property Details
@@ -143,13 +138,6 @@ const ReviewIcon = ({ className = '' }: { className?: string }) => (
 );
 
 // Custom Minimalistic Icons for Upload Section
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const PreviewIcon = ({ className = '' }: { className?: string }) => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-    <ellipse cx="8" cy="7.5" rx="5" ry="3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-    <circle cx="8" cy="7.5" r="1.5" fill="currentColor"/>
-  </svg>
-);
 
 const CloseIcon = ({ className = '' }: { className?: string }) => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
@@ -349,11 +337,9 @@ export default function RegistrationPage() {
   const previousWalletAddress = useRef<string | null>(null);
   const [showQRCode, setShowQRCode] = useState(false);
   const [showDocumentValidation, setShowDocumentValidation] = useState(false);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [emailSent, setEmailSent] = useState(false);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [sendingEmail, setSendingEmail] = useState(false);
   const [countdown, setCountdown] = useState<number>(0);
+  const [, setSendingEmail] = useState(false);
+  const [, setEmailSent] = useState(false);
   const [formData, setFormData] = useState<FormData>({
     propertyType: '',
     surveyNumber: '',
@@ -612,7 +598,7 @@ export default function RegistrationPage() {
     return { stampDuty: '', registrationFee: '' };
   };
 
-  const handleInputChange = (field: string, value: string | File | File[] | Array<{ name: string; address: string; phone: string; aadhar: string }>) => {
+  const handleInputChange = (field: string, value: string) => {
     // Clear error for this field when user starts typing
     if (errors[field]) {
       setErrors(prev => {
@@ -1358,7 +1344,6 @@ Registration ID: REG-${Date.now().toString().slice(-8)}
         if (file) {
           const uploadPromise = (async () => {
             try {
-              console.log(`Uploading document ${key} (${file.name}, ${file.size} bytes) to IPFS...`);
               const result = await uploadFileToIPFS(file as File, file.name);
               if (!result || !result.hash) {
                 throw new Error(`Upload failed: No hash returned for ${key}`);
@@ -1368,7 +1353,6 @@ Registration ID: REG-${Date.now().toString().slice(-8)}
                 ipfsHash: result.hash,
                 mimeType: file.type || 'application/octet-stream',
               };
-              console.log(`✅ Document ${key} uploaded to IPFS: ${result.hash}`);
             } catch (error) {
               console.error(`❌ Error uploading document ${key} to IPFS:`, error);
               throw new Error(`Failed to upload document ${key} (${file.name}). ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -1381,16 +1365,12 @@ Registration ID: REG-${Date.now().toString().slice(-8)}
       // Wait for all documents to upload
       if (documentUploadPromises.length > 0) {
         await Promise.all(documentUploadPromises);
-        console.log(`✅ All ${documentUploadPromises.length} documents uploaded successfully`);
       }
 
       // Upload photos to IPFS
       let photosIPFS: Array<{ name: string; ipfsHash: string; mimeType: string }> = [];
       if (formData.propertyPhotos.length > 0) {
         try {
-          console.log(`Uploading ${formData.propertyPhotos.length} photos to IPFS...`);
-          console.log('Photo details:', formData.propertyPhotos.map(p => ({ name: p.name, size: p.size, type: p.type })));
-          
           const uploadedPhotos = await uploadFilesToIPFS(formData.propertyPhotos);
           
           // Validate all photos were uploaded
@@ -1409,8 +1389,6 @@ Registration ID: REG-${Date.now().toString().slice(-8)}
               mimeType: photo.mimeType || 'image/jpeg',
             };
           });
-          
-          console.log(`✅ All ${photosIPFS.length} photos uploaded to IPFS successfully:`, photosIPFS.map(p => ({ name: p.name, hash: p.ipfsHash })));
         } catch (error) {
           console.error('❌ Error uploading photos to IPFS:', error);
           throw new Error(`Failed to upload property photos: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -1483,8 +1461,6 @@ Registration ID: REG-${Date.now().toString().slice(-8)}
 
       // Save registration to Supabase
       await saveRegistration(registrationData);
-      console.log('Registration saved to Supabase successfully');
-
       // Save registration to Solana blockchain
       try {
         // Ensure wallet is connected before proceeding
@@ -1493,21 +1469,12 @@ Registration ID: REG-${Date.now().toString().slice(-8)}
         }
         
         // Verify wallet has publicKey access
-        const walletPublicKey = wallet?.adapter?.publicKey || wallet?.publicKey || publicKey;
+        const walletPublicKey = wallet?.adapter?.publicKey || publicKey;
         if (!walletPublicKey) {
           throw new Error('Wallet public key not available. Please reconnect your wallet.');
         }
         
-        console.log('🔗 Initializing Solana blockchain registration...');
-        console.log('Wallet details:', { 
-          connected, 
-          hasPublicKey: !!publicKey, 
-          hasWallet: !!wallet,
-          walletPublicKey: walletPublicKey.toString(),
-          documentsCount: Object.keys(documentsIPFS).length,
-          photosCount: photosIPFS.length
-        });
-        
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const blockchainResult = await initializeRegistrationOnSolana(
           wallet,
           sendTransaction,
@@ -1536,11 +1503,6 @@ Registration ID: REG-${Date.now().toString().slice(-8)}
             buyer_father_name: registrationData.buyer_father_name,
           }
         );
-        
-        console.log('✅ Registration initialized on Solana successfully:', blockchainResult);
-        console.log('📋 View your registration data on-chain:', blockchainResult.solscanUrl);
-        console.log('🔗 Transaction signature:', blockchainResult.signature);
-        console.log('📝 Registration Account Address:', blockchainResult.accountAddress);
       } catch (error) {
         console.error('❌ Failed to save to Solana blockchain:', error);
         // Don't fail the entire registration if Solana fails
@@ -1558,8 +1520,6 @@ Registration ID: REG-${Date.now().toString().slice(-8)}
           console.error('Failed to delete draft after submission:', error);
         }
       }
-      
-      console.log('Form submitted:', formData);
       
       // Automatically send email notification
       await sendEmailNotification();
@@ -1666,7 +1626,6 @@ Registration ID: REG-${Date.now().toString().slice(-8)}
   const sendEmailNotification = async () => {
     // Only send email if at least one email address is provided
     if (!formData.sellerEmail && !formData.buyerEmail) {
-      console.log('No email addresses provided, skipping email notification');
       return;
     }
 
@@ -1676,7 +1635,6 @@ Registration ID: REG-${Date.now().toString().slice(-8)}
       // Simulate API call
       await new Promise(resolve => setTimeout(resolve, 1500));
       setEmailSent(true);
-      console.log('Email notification sent successfully to:', formData.sellerEmail || formData.buyerEmail);
       
       // Hide notification after 3 seconds
       setTimeout(() => setEmailSent(false), 3000);
@@ -2037,7 +1995,7 @@ Registration ID: REG-${Date.now().toString().slice(-8)}
                   className={`w-full bg-black/40 border rounded-lg px-4 py-3 text-white focus:outline-none focus:border-gray-600 ${
                     errors.sellerFatherName ? 'border-red-500' : 'border-gray-700'
                   }`}
-                  placeholder="Enter father's/husband's name"
+                  placeholder="Enter father&apos;s/husband&apos;s name"
                 />
                 {errors.sellerFatherName && (
                   <p className="mt-1 text-sm text-red-400 flex items-center gap-1">
@@ -2200,7 +2158,7 @@ Registration ID: REG-${Date.now().toString().slice(-8)}
                   className={`w-full bg-black/40 border rounded-lg px-4 py-3 text-white focus:outline-none focus:border-gray-600 ${
                     errors.buyerFatherName ? 'border-red-500' : 'border-gray-700'
                   }`}
-                  placeholder="Enter father's/husband's name"
+                  placeholder="Enter father&apos;s/husband&apos;s name"
                 />
                 {errors.buyerFatherName && (
                   <p className="mt-1 text-sm text-red-400 flex items-center gap-1">

@@ -7,17 +7,14 @@ import Link from 'next/link';
 import { Lexend_Deca, DM_Sans } from 'next/font/google';
 
 // Lazy load the GIF component for faster initial load
-const VideoGif = dynamic(() => Promise.resolve(({ className }: { className?: string }) => {
-  return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src="/video.gif"
-      alt="Video demonstration"
-      className={className}
-      loading="lazy"
-    />
-  );
-}), { ssr: false });
+const VideoGif = dynamic(() => Promise.resolve(({ className }: { className?: string }) => (
+  <img
+    src="/video.gif"
+    alt="Video demonstration"
+    className={className}
+    loading="lazy"
+  />
+)), { ssr: false });
 
 const lexendDeca = Lexend_Deca({
   subsets: ["latin"],
@@ -31,13 +28,13 @@ const dmSans = DM_Sans({
 
 // Title suffix typing animation component
 function TitleSuffixAnimation() {
+  const suffixes = ["REGISTER", "VERIFY", "SEARCH"];
   const [currentSuffixIndex, setCurrentSuffixIndex] = useState(0);
   const [displayedText, setDisplayedText] = useState('');
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
-    const suffixes = ["REGISTER", "VERIFY", "SEARCH"];
     const currentSuffix = suffixes[currentSuffixIndex];
     
     if (!isDeleting && currentIndex < currentSuffix.length) {

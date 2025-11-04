@@ -18,6 +18,7 @@
 # misc
 .DS_Store
 *.pem
+Thumbs.db
 
 # debug
 npm-debug.log*
@@ -27,7 +28,6 @@ yarn-error.log*
 # local env files
 .env*.local
 .env
-*.so
 
 # vercel
 .vercel
@@ -35,4 +35,16 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Build artifacts
+dist/
+build/
+*.so
 

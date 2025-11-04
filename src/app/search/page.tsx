@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { FileText, Calendar, Loader2, AlertCircle, X, Copy, Check, Download, QrCode, ChevronDown } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Lexend_Deca, DM_Sans } from 'next/font/google';
+import { Lexend_Deca } from 'next/font/google';
 import { searchRegistrations, savePayment, saveSearchHistory, getSearchHistory, type RegistrationData } from '@/lib/supabase/database';
 import { getIPFSUrl } from '@/lib/ipfs/pinata';
 
@@ -14,11 +14,6 @@ const lexendDeca = Lexend_Deca({
   weight: ["300", "400", "500"],
 });
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const dmSans = DM_Sans({
-  subsets: ["latin"],
-  weight: ["400", "500", "700"],
-});
 
 interface SearchFormData {
   searchType: 'registrationId' | 'surveyNumber';
@@ -84,6 +79,22 @@ interface SearchResult {
   status: 'active' | 'pending' | 'verified';
 }
 
+type StoredPhoto = {
+  name: string;
+  ipfsHash?: string;
+  url?: string;
+  data?: string;
+  mimeType?: string;
+};
+
+type StoredDocument = {
+  name?: string;
+  ipfsHash?: string;
+  url?: string;
+  data?: string;
+  mimeType?: string;
+};
+
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const indianStates = [
   'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
@@ -115,8 +126,10 @@ export default function SearchPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [showQRCode, setShowQRCode] = useState(false);
   const [searchHistory, setSearchHistory] = useState<Array<{ type: string; query: string; timestamp: number }>>([]);
-  const [sortOption] = useState<SortOption>('date');
-  const [sortOrder] = useState<SortOrder>('desc');
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [sortOption, setSortOption] = useState<SortOption>('date');
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -142,11 +155,11 @@ export default function SearchPage() {
 
   // Helper function to convert Supabase registration data to search result
   const convertToSearchResult = (registration: RegistrationData): SearchResult => {
-    const documents = registration.documents || {};
+    const documents = (registration.documents as Record<string, StoredDocument>) || {};
     const documentList = Object.keys(documents)
       .filter(key => documents[key])
       .map(key => {
-        const doc = documents[key];
+        const doc = documents[key] as StoredDocument;
         // Handle both IPFS hash and legacy base64 data
         const hasIPFS = doc?.ipfsHash;
         const hasBase64 = doc?.data;
@@ -155,22 +168,21 @@ export default function SearchPage() {
           type: key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1').trim(),
           name: doc?.name || `${key}.pdf`,
           ipfsHash: hasIPFS ? doc.ipfsHash : undefined,
-          url: hasIPFS ? getIPFSUrl(doc.ipfsHash) : undefined,
+          url: hasIPFS ? getIPFSUrl(doc.ipfsHash as string) : undefined,
           data: hasBase64 ? doc.data : undefined, // Keep for backward compatibility
           mimeType: doc?.mimeType || 'application/pdf',
         };
       });
 
     // Get property photos with IPFS or legacy data
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const photosList = (registration.property_photos || []).map((photo: any) => {
+    const photosList = (registration.property_photos || []).map((photo: StoredPhoto) => {
       const hasIPFS = photo?.ipfsHash;
       const hasBase64 = photo?.data;
       
       return {
         name: photo.name || `photo_${Date.now()}.jpg`,
         ipfsHash: hasIPFS ? photo.ipfsHash : undefined,
-        url: hasIPFS ? getIPFSUrl(photo.ipfsHash) : undefined,
+        url: hasIPFS ? getIPFSUrl(photo.ipfsHash as string) : undefined,
         data: hasBase64 ? photo.data : undefined, // Keep for backward compatibility
         mimeType: photo.mimeType || 'image/jpeg',
       };
@@ -352,7 +364,7 @@ export default function SearchPage() {
       }
       // Download all photos
       if (pendingResult.propertyPhotos && pendingResult.propertyPhotos.length > 0) {
-        downloadAllPhotos(pendingResult.propertyPhotos, pendingResult.registrationId);
+        downloadAllPhotos(pendingResult.propertyPhotos);
       }
     }, 500);
   };
@@ -400,11 +412,9 @@ export default function SearchPage() {
     }
 
     // Apply sorting
-    filtered.sort((a, b) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let aValue: any;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let bValue: any;
+    filtered.sort((a: SearchResult, b: SearchResult) => {
+      let aValue: number | string;
+      let bValue: number | string;
 
       switch (sortOption) {
         case 'date':
@@ -485,19 +495,21 @@ export default function SearchPage() {
   const loadFromHistory = async (entry: { type: string; query: string }) => {
     setSearchForm(prev => ({
       ...prev,
-      searchType: entry.type as any,
-      [entry.type]: entry.query,
+      ...(() => {
+        const key = entry.type as 'registrationId' | 'surveyNumber';
+        return { searchType: key, [key]: entry.query } as Pick<SearchFormData, 'searchType'> & Partial<SearchFormData>;
+      })(),
     }));
     setIsRecentSearchesOpen(false);
     
     // Wait for state to update, then trigger search
     setTimeout(async () => {
       // Set the form values first
+      const searchType = entry.type as 'registrationId' | 'surveyNumber';
       const newForm = {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        searchType: entry.type as any,
-        registrationId: entry.type === 'registrationId' ? entry.query : '',
-        surveyNumber: entry.type === 'surveyNumber' ? entry.query : '',
+        searchType,
+        registrationId: searchType === 'registrationId' ? entry.query : '',
+        surveyNumber: searchType === 'surveyNumber' ? entry.query : '',
       };
       setSearchForm(newForm);
       
@@ -517,12 +529,11 @@ export default function SearchPage() {
 
       try {
         // Search registrations from Supabase
-      const foundRegistrations = await searchRegistrations(
-        entry.type as 'registrationId' | 'surveyNumber',
-        searchQuery
-      );
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const foundResults: SearchResult[] = foundRegistrations.map((reg: any) => convertToSearchResult(reg));
+        const foundRegistrations = await searchRegistrations(
+          entry.type as 'registrationId' | 'surveyNumber',
+          searchQuery
+        );
+        const foundResults: SearchResult[] = foundRegistrations.map(reg => convertToSearchResult(reg));
 
         if (foundResults.length === 0) {
           setSearchError('No registration found matching your search criteria.');
@@ -595,8 +606,7 @@ export default function SearchPage() {
   };
 
   // Download photo
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const downloadPhoto = async (photo: { name: string; ipfsHash?: string; url?: string; data?: string; mimeType: string }, registrationId: string) => {
+  const downloadPhoto = async (photo: { name: string; ipfsHash?: string; url?: string; data?: string; mimeType: string }) => {
     // Prefer IPFS URL over base64
     if (photo.url) {
       try {
@@ -640,9 +650,9 @@ export default function SearchPage() {
   };
 
   // Download all photos
-  const downloadAllPhotos = async (photos: Array<{ name: string; ipfsHash?: string; url?: string; data?: string; mimeType: string }>, registrationId: string) => {
+  const downloadAllPhotos = async (photos: Array<{ name: string; ipfsHash?: string; url?: string; data?: string; mimeType: string }>) => {
     for (let i = 0; i < photos.length; i++) {
-      setTimeout(() => downloadPhoto(photos[i], registrationId), i * 300);
+      setTimeout(() => downloadPhoto(photos[i]), i * 300);
     }
   };
 
@@ -678,7 +688,7 @@ Registration Fee: ₹${parseFloat(result.registrationFee).toLocaleString('en-IN'
 SELLER INFORMATION
 ------------------
 Name: ${result.sellerName}
-Father&apos;s Name: ${result.sellerFatherName}
+Father's Name: ${result.sellerFatherName}
 ${result.sellerAge ? `Age: ${result.sellerAge}` : ''}
 ${result.sellerAddress ? `Address: ${result.sellerAddress}` : ''}
 ${result.sellerPhone ? `Phone: ${result.sellerPhone}` : ''}
@@ -689,7 +699,7 @@ ${result.sellerPan ? `PAN: ${result.sellerPan}` : ''}
 BUYER INFORMATION
 -----------------
 Name: ${result.buyerName}
-Father&apos;s Name: ${result.buyerFatherName}
+Father's Name: ${result.buyerFatherName}
 ${result.buyerAge ? `Age: ${result.buyerAge}` : ''}
 ${result.buyerAddress ? `Address: ${result.buyerAddress}` : ''}
 ${result.buyerPhone ? `Phone: ${result.buyerPhone}` : ''}
@@ -776,14 +786,14 @@ Registration Fee: ₹${parseFloat(result.registrationFee).toLocaleString('en-IN'
 SELLER INFORMATION
 ------------------
 Name: ${result.sellerName}
-Father&apos;s Name: ${result.sellerFatherName}
+Father's Name: ${result.sellerFatherName}
 ${result.sellerAge ? `Age: ${result.sellerAge}` : ''}
 ${result.sellerAddress ? `Address: ${result.sellerAddress}` : ''}
 
 BUYER INFORMATION
 -----------------
 Name: ${result.buyerName}
-Father&apos;s Name: ${result.buyerFatherName}
+Father's Name: ${result.buyerFatherName}
 ${result.buyerAge ? `Age: ${result.buyerAge}` : ''}
 ${result.buyerAddress ? `Address: ${result.buyerAddress}` : ''}
 
@@ -1519,7 +1529,7 @@ Generated on: ${new Date().toLocaleString()}
                       </h3>
                       <button
                         onClick={() => {
-                          downloadAllPhotos(selectedResult.propertyPhotos!, selectedResult.registrationId);
+                          downloadAllPhotos(selectedResult.propertyPhotos!);
                         }}
                         className="px-2 sm:px-3 py-1.5 bg-black/40 border border-gray-700 text-white rounded-lg hover:bg-black/60 transition-colors text-sm flex items-center gap-2"
                       >
@@ -1564,7 +1574,7 @@ Generated on: ${new Date().toLocaleString()}
                             </svg>
                             <p className="text-gray-400 text-xs truncate w-full text-center">{photo.name}</p>
                             <button
-                              onClick={() => downloadPhoto(photo, selectedResult.registrationId)}
+                              onClick={() => downloadPhoto(photo)}
                               className="px-2 py-1 bg-black/40 border border-gray-700 text-white rounded hover:bg-black/60 transition-colors text-xs flex items-center gap-1 w-full justify-center"
                             >
                               <Download size={14} className="sm:w-4 sm:h-4" />

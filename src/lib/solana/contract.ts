@@ -8,8 +8,30 @@ export const SOLANA_RPC_URL = 'https://api.devnet.solana.com';
 export const connection = new Connection(SOLANA_RPC_URL);
 
 // Calculate minimum account size for registration data
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function calculateAccountSize(registrationData: any, documentsIpfsHash: string, photosIpfsHash: string): number {
+type RegistrationSizeInput = {
+  registration_id: string;
+  survey_number: string;
+  plot_number: string;
+  village: string;
+  taluka: string;
+  district: string;
+  state: string;
+  pincode: string;
+  property_type: string;
+  area: string;
+  area_unit: string;
+  transaction_type: string;
+  consideration_amount: string;
+  stamp_duty: string;
+  registration_fee: string;
+  sale_agreement_date: string;
+  seller_name: string;
+  seller_father_name: string;
+  buyer_name: string;
+  buyer_father_name: string;
+};
+
+function calculateAccountSize(registrationData: RegistrationSizeInput, documentsIpfsHash: string, photosIpfsHash: string): number {
   const baseSize = 1 + 32; // initialized flag + authority pubkey
   let stringSize = 0;
   
@@ -114,9 +136,9 @@ function createInitializeRegistrationInstruction(
 }
 
 // Initialize registration on Solana blockchain
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type WalletLike = { adapter?: { publicKey?: PublicKey | null }; publicKey?: PublicKey | null };
 export async function initializeRegistrationOnSolana(
-  wallet: any, // Wallet from useWallet hook
+  wallet: WalletLike, // Wallet from useWallet hook
   sendTransactionFn: (transaction: Transaction, connection: Connection) => Promise<string>, // sendTransaction from useWallet hook
   documents: Record<string, { name: string; ipfsHash: string; mimeType: string }>,
   photos: Array<{ name: string; ipfsHash: string; mimeType: string }>,
@@ -151,8 +173,6 @@ export async function initializeRegistrationOnSolana(
       throw new Error('Wallet not connected');
     }
     
-    console.log('📦 Uploading IPFS manifests...');
-    
     // Upload documents manifest to IPFS
     const documentsIpfsHash = documents && Object.keys(documents).length > 0
       ? (await uploadJSONToIPFS(documents, 'documents_manifest.json')).hash
@@ -163,19 +183,12 @@ export async function initializeRegistrationOnSolana(
       ? (await uploadJSONToIPFS(photos, 'photos_manifest.json')).hash
       : '';
     
-    console.log('✅ IPFS manifests uploaded:', {
-      documents: documentsIpfsHash,
-      photos: photosIpfsHash,
-    });
-    
     // Create a unique registration account keypair
     const registrationAccount = Keypair.generate();
     
     // Calculate account size
     const accountSize = calculateAccountSize(registrationData, documentsIpfsHash, photosIpfsHash);
     const rentExemptionAmount = await connection.getMinimumBalanceForRentExemption(accountSize);
-    
-    console.log('📝 Creating Solana transaction...');
     
     // Create instruction data
     const instructionData = createInitializeRegistrationInstruction(
@@ -210,14 +223,12 @@ export async function initializeRegistrationOnSolana(
     transaction.add(createAccountInstruction, initializeInstruction);
     
     // Get latest blockhash
-    const { blockhash } = await connection.getLatestBlockhash('finalized');
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('finalized');
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = walletPublicKey;
     
     // Sign the transaction with registration account
     transaction.partialSign(registrationAccount);
-    
-    console.log('📤 Sending transaction to Solana...');
     
     // Send and confirm the transaction using the sendTransaction function from useWallet hook
     if (!sendTransactionFn) {
@@ -226,15 +237,9 @@ export async function initializeRegistrationOnSolana(
     
     const signature = await sendTransactionFn(transaction, connection);
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    await connection.confirmTransaction({ signature, blockhash }, 'confirmed');
+    const confirmation = await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
     
     const registrationAccountAddress = registrationAccount.publicKey.toBase58();
-    
-    console.log('✅ Registration successfully stored on Solana:', {
-      signature,
-      registrationAccount: registrationAccountAddress,
-      viewOnSolscan: `https://solscan.io/account/${registrationAccountAddress}?cluster=devnet`,
-    });
     
     // Return both signature and account address as an object
     return {

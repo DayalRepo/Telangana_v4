@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import pinataSDK from '@pinata/sdk';
+import pinataSDK, { type PinataPinOptions } from '@pinata/sdk';
 import { Readable } from 'stream';
 
 // Initialize Pinata SDK on server side
@@ -57,12 +57,12 @@ export async function POST(request: NextRequest) {
     // Create a readable stream from buffer
     const stream = Readable.from(buffer);
 
-    const options = {
+    const options: PinataPinOptions = {
       pinataMetadata: {
         name: file.name,
       },
       pinataOptions: {
-        cidVersion: 0,
+        cidVersion: 1 as const,
       },
     };
 

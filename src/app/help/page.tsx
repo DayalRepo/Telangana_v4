@@ -349,7 +349,7 @@ export default function HelpPage() {
                   <li>Wait for network congestion to clear (check Solana network status)</li>
                   <li>Try the transaction again after a few minutes</li>
                   <li>Increase the transaction priority if your wallet supports it</li>
-                  <li>Ensure your wallet hasn't been disconnected</li>
+                  <li>Ensure your wallet hasn&apos;t been disconnected</li>
                   <li>Check wallet logs for specific error messages</li>
                 </ul>
               </div>

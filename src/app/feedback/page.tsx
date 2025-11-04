@@ -69,16 +69,7 @@ export default function FeedbackPage() {
     await new Promise(resolve => setTimeout(resolve, 1500));
     
     // In a real application, you would send this to a backend API
-    console.log({
-      feedbackType,
-      priority: feedbackType === 'bug' || feedbackType === 'support' ? priority : undefined,
-      name,
-      email,
-      phone,
-      subject,
-      message,
-      timestamp: new Date().toISOString()
-    });
+    // TODO: Implement backend API integration for feedback submission
 
     setIsSubmitting(false);
     setSubmitted(true);
