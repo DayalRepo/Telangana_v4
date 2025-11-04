@@ -83,18 +83,80 @@ export async function uploadFileToIPFS(file: File, fileName: string): Promise<{ 
 }
 
 // Upload multiple files to IPFS
+// For mobile devices, upload sequentially to avoid overwhelming the connection
 export async function uploadFilesToIPFS(files: File[]): Promise<Array<{ name: string; hash: string; url: string; mimeType: string }>> {
   try {
-    const uploadPromises = files.map(file => 
-      uploadFileToIPFS(file, file.name).then(result => ({
-        name: file.name,
-        hash: result.hash,
-        url: result.url,
-        mimeType: file.type,
-      }))
-    );
+    // Detect if we're on mobile
+    const isMobile = typeof window !== 'undefined' && 
+      (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+       (window.innerWidth <= 768));
 
-    const results = await Promise.all(uploadPromises);
+    const results: Array<{ name: string; hash: string; url: string; mimeType: string }> = [];
+
+    if (isMobile) {
+      // On mobile: upload sequentially to avoid overwhelming the connection
+      // This is more reliable on mobile networks
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        try {
+          console.log(`Uploading photo ${i + 1}/${files.length}: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`);
+          
+          // Verify file is still valid before uploading
+          if (!file || file.size === 0) {
+            throw new Error(`File ${file.name} is invalid or empty`);
+          }
+
+          const result = await uploadFileToIPFS(file, file.name);
+          
+          if (!result || !result.hash) {
+            throw new Error(`Upload succeeded but no hash returned for ${file.name}`);
+          }
+
+          results.push({
+            name: file.name,
+            hash: result.hash,
+            url: result.url,
+            mimeType: file.type || 'image/jpeg',
+          });
+          
+          console.log(`✓ Successfully uploaded photo ${i + 1}/${files.length}: ${file.name}`);
+          
+          // Small delay between uploads on mobile to avoid overwhelming the connection
+          if (i < files.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay
+          }
+        } catch (error) {
+          console.error(`❌ Failed to upload photo ${i + 1}/${files.length} (${file.name}):`, error);
+          throw new Error(`Failed to upload photo "${file.name}": ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+      }
+    } else {
+      // On desktop: upload in parallel for better performance
+      const uploadPromises = files.map((file, index) => 
+        uploadFileToIPFS(file, file.name)
+          .then(result => {
+            console.log(`✓ Successfully uploaded photo ${index + 1}/${files.length}: ${file.name}`);
+            return {
+              name: file.name,
+              hash: result.hash,
+              url: result.url,
+              mimeType: file.type,
+            };
+          })
+          .catch(error => {
+            console.error(`❌ Failed to upload photo ${index + 1}/${files.length} (${file.name}):`, error);
+            throw new Error(`Failed to upload photo "${file.name}": ${error instanceof Error ? error.message : 'Unknown error'}`);
+          })
+      );
+
+      const uploadedResults = await Promise.all(uploadPromises);
+      results.push(...uploadedResults);
+    }
+
+    if (results.length !== files.length) {
+      throw new Error(`Only ${results.length} of ${files.length} photos were uploaded successfully`);
+    }
+
     return results;
   } catch (error) {
     console.error('Error uploading files to IPFS:', error);
