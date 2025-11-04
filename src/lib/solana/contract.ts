@@ -1,4 +1,4 @@
-import { PublicKey, Connection, SystemProgram, Transaction, TransactionInstruction, Keypair } from '@solana/web3.js';
+import { PublicKey, Connection, SystemProgram, Transaction, TransactionInstruction, Keypair, VersionedTransaction } from '@solana/web3.js';
 import { uploadJSONToIPFS } from '../ipfs/pinata';
 
 // Solana Program Configuration
@@ -227,15 +227,70 @@ export async function initializeRegistrationOnSolana(
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = walletPublicKey;
     
-    // Sign the transaction with registration account
-    transaction.partialSign(registrationAccount);
+    // For mobile wallets, we need to ensure proper transaction signing
+    // The transaction needs TWO signatures:
+    // 1. Registration account (we sign this with partialSign)
+    // 2. Wallet (the wallet adapter will add this via sendTransaction)
+    try {
+      // Sign the transaction with registration account (partial sign)
+      // This signs with the registration account keypair we generated
+      transaction.partialSign(registrationAccount);
+      
+      // Verify the transaction has the registration account signature
+      const registrationSig = transaction.signatures.find(sig => sig.publicKey.equals(registrationAccount.publicKey));
+      
+      if (!registrationSig || !registrationSig.signature) {
+        throw new Error('Failed to sign transaction with registration account');
+      }
+      
+      // The wallet signature will be added automatically by the wallet adapter's sendTransaction
+      // The wallet adapter detects the feePayer and adds the signature
+      // For mobile wallets, we need to ensure the transaction is in the correct state
+      
+      console.log('Transaction signatures after partial sign:', {
+        registrationAccount: registrationSig.signature ? 'signed ✓' : 'missing ✗',
+        wallet: 'will be signed by wallet adapter',
+        feePayer: transaction.feePayer?.toBase58(),
+      });
+    } catch (signError) {
+      console.error('Error signing transaction with registration account:', signError);
+      throw new Error(`Failed to sign transaction: ${signError instanceof Error ? signError.message : 'Unknown error'}`);
+    }
     
     // Send and confirm the transaction using the sendTransaction function from useWallet hook
     if (!sendTransactionFn) {
       throw new Error('sendTransaction function not provided');
     }
     
+    // Log transaction details for debugging (mobile wallets)
+    console.log('Transaction details:', {
+      feePayer: walletPublicKey.toBase58(),
+      signers: transaction.signatures.map(s => s.publicKey.toBase58()),
+      instructions: transaction.instructions.length,
+      hasRegistrationSignature: transaction.signatures.some(sig => sig.publicKey.equals(registrationAccount.publicKey)),
+    });
+    
+    // Ensure transaction is properly set up for mobile wallets
+    // Mobile wallets need the transaction to be in a specific state:
+    // 1. Partially signed with the registration account
+    // 2. Fee payer set to wallet public key
+    // 3. Recent blockhash set
+    // The wallet adapter's sendTransaction should detect the fee payer and add its signature
+    
+    // Verify transaction structure before sending
+    if (!transaction.feePayer || !transaction.feePayer.equals(walletPublicKey)) {
+      throw new Error('Transaction fee payer is not set to wallet public key');
+    }
+    
+    if (!transaction.recentBlockhash) {
+      throw new Error('Transaction recent blockhash is not set');
+    }
+    
     // Send transaction with timeout for mobile devices
+    // The wallet adapter's sendTransaction should automatically:
+    // 1. Detect the fee payer (walletPublicKey)
+    // 2. Add the wallet's signature
+    // 3. Send the transaction to the network
     const sendTransactionPromise = sendTransactionFn(transaction, connection);
     const timeoutPromise = new Promise<never>((_, reject) => 
       setTimeout(() => reject(new Error('Transaction timeout: Please try again')), 120000) // 2 minute timeout
