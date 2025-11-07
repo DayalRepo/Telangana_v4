@@ -2467,7 +2467,7 @@ Registration ID: REG-${Date.now().toString().slice(-8)}
                 </div>
               </div>
 
-              <div className="border-t border-gray-700 pt-6">
+              <div className="border-t border-gray-700 pt-6 hidden sm:block">
                 <h3 className={`${lexendDeca.className} text-lg font-medium mb-4`}>Property Photos</h3>
                 <p className="text-sm text-white/80 mb-4">Upload up to 10 photos of the property (Optional)</p>
                 
@@ -2781,7 +2781,7 @@ Registration ID: REG-${Date.now().toString().slice(-8)}
                     </div>
                   </div>
                   <div>
-                    <div className="flex items-center gap-2 text-white/80 mb-3">
+                    <div className="hidden sm:flex items-center gap-2 text-white/80 mb-3">
                       <span>Property Photos: <span className="text-white">{formData.propertyPhotos.length} photo(s)</span></span>
                       {formData.propertyPhotos.length > 0 && (
                         <button
@@ -2794,7 +2794,7 @@ Registration ID: REG-${Date.now().toString().slice(-8)}
                       )}
                     </div>
                     {formData.propertyPhotos.length > 0 && (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mt-3">
+                      <div className="hidden sm:grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mt-3">
                         {formData.propertyPhotos.slice(0, 8).map((photo, index) => {
                           // Use stored URL or create one if not available
                           const photoUrl = propertyPhotoUrls.get(index) || URL.createObjectURL(photo);
